@@ -2,6 +2,7 @@ import os
 import multiprocessing as mp
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
+
 def _info_worker(index, url, q):
     try:
         import yt_dlp
@@ -11,6 +12,7 @@ def _info_worker(index, url, q):
         q.put(('info_ok', index, {'info': info}))
     except Exception as e:
         q.put(('info_err', index, {'message': str(e)}))
+
 
 def _download_worker(index, url, out_dir, proxy, q, filename):
     try:
@@ -26,6 +28,7 @@ def _download_worker(index, url, out_dir, proxy, q, filename):
                 'filename': d.get('filename'),
             }
             q.put(('progress', index, payload))
+
         ydl_opts = {
             'outtmpl': os.path.join(out_dir, filename),
             'format': 'bestvideo+bestaudio/best',
@@ -45,15 +48,20 @@ def _download_worker(index, url, out_dir, proxy, q, filename):
     except Exception as e:
         q.put(('done', index, {'ok': False, 'message': str(e)}))
 
+
 class DownloadManager(QObject):
-    info_received   = pyqtSignal(int, dict)
-    info_error      = pyqtSignal(int, str)
-    progress_changed= pyqtSignal(int, float)
-    status_changed  = pyqtSignal(int, str)
+    info_received = pyqtSignal(int, dict)
+    info_error = pyqtSignal(int, str)
+    progress_changed = pyqtSignal(int, float)
+    status_changed = pyqtSignal(int, str)
     finished_signal = pyqtSignal(int, bool, str)
 
     def __init__(self, out_dir='.', proxy=None, poll_interval_ms=80):
         super().__init__()
+
+        if mp.current_process().name == 'MainProcess':
+            mp.freeze_support()
+
         self.queue = []
         self.out_dir = out_dir
         self.proxy = proxy
@@ -82,7 +90,9 @@ class DownloadManager(QObject):
         if index in self._info_procs:
             return
         url = self.queue[index]['url']
-        p = mp.Process(target=_info_worker, args=(index, url, self._mp_queue), daemon=True)
+
+        ctx = mp.get_context('spawn')
+        p = ctx.Process(target=_info_worker, args=(index, url, self._mp_queue), daemon=True)
         p.start()
         self._info_procs[index] = p
 
@@ -92,7 +102,10 @@ class DownloadManager(QObject):
         if index in self._download_procs:
             return
         url = self.queue[index]['url']
-        p = mp.Process(target=_download_worker, args=(index, url, self.out_dir, self.proxy, self._mp_queue, self.queue[index].get('_filename')), daemon=True)
+
+        ctx = mp.get_context('spawn')
+        p = ctx.Process(target=_download_worker, args=(index, url, self.out_dir, self.proxy,
+                                                       self._mp_queue, self.queue[index].get('_filename')), daemon=True)
         p.start()
         self._download_procs[index] = p
         self.queue[index]['status'] = 'downloading'
