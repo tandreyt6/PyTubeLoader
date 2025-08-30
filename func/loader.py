@@ -66,8 +66,15 @@ class DownloadManager(QObject):
 
     def add_video(self, url):
         item = {'url': url, 'status': 'queued', 'title': None, 'filepath': None}
+        existing_index = None
+        for i, existing_item in enumerate(self.queue):
+            if existing_item['url'] == url:
+                existing_index = i
+                break
+        if existing_index is not None:
+            return 0, existing_index
         self.queue.append(item)
-        return len(self.queue) - 1
+        return 1, len(self.queue) - 1
 
     def get_info(self, index):
         if not (0 <= index < len(self.queue)):

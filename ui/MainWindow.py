@@ -1,5 +1,8 @@
 import os
 import json
+
+from PyQt6 import QtCore
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
     QProgressBar, QListWidget, QListWidgetItem, QFileDialog,
@@ -12,7 +15,8 @@ from func.loader import DownloadManager
 SETTINGS_FILE = "settings.json"
 HISTORY_FILE = "history.json"
 
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty, QTimer
+
 
 class ExpandableSide(QWidget):
     def __init__(self, title, min_w=0, max_w=360, side="left"):
@@ -103,6 +107,8 @@ class DownloadCard(QWidget):
         self.url = url
         self.remove_callback = remove_callback
         self.main_window = main_window
+        self.animation = None
+        self.original_style = self.styleSheet()
 
         self.title_label = QLabel(title)
         self.title_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -221,10 +227,37 @@ class DownloadCard(QWidget):
             out_dir = self.main_window.out_dir_edit_right.text().strip() or "."
             os.system("start "+out_dir)
 
+    def highlight_card(self):
+        if self.animation and self.animation.state() == QPropertyAnimation.State.Running:
+            self.animation.stop()
+
+        self.animation = QPropertyAnimation(self, b"background_color")
+        self.animation.setDuration(1000)
+        self.animation.setStartValue(QColor(255, 255, 0, 150))
+        self.animation.setEndValue(QColor(255, 255, 255, 0))
+        self.animation.start()
+
+        QTimer.singleShot(1100, self.reset_style)
+
+    def get_background_color(self):
+        return self.palette().color(self.backgroundRole())
+
+    def set_background_color(self, color):
+        palette = self.palette()
+        palette.setColor(self.backgroundRole(), color)
+        self.setAutoFillBackground(True)
+        self.setPalette(palette)
+
+    def reset_style(self):
+        self.setAutoFillBackground(False)
+        self.setStyleSheet(self.original_style)
+
+    background_color = QtCore.pyqtProperty(QColor, get_background_color, set_background_color)
+
 class MainWindow(WindowAbs):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("YT Downloader")
+        self.setWindowTitle("PyTubeLoader")
         self.resize(1060, 700)
         self.manager = DownloadManager()
         self.cards = {}
@@ -563,13 +596,21 @@ class MainWindow(WindowAbs):
         url = self.url_edit.text().strip()
         if not url:
             return
-        index = self.manager.add_video(url)
+        _, index = self.manager.add_video(url)
+        if _ == 0:
+            if index in self.cards:
+                self.cards[index].highlight_card()
+                return
+            self.manager.queue[index]['status'] = "queued"
         card = DownloadCard(index, "Получаем информацию...", url, self.manager, self.remove_video, self)
         self.cards[index] = card
         item = QListWidgetItem()
         item.setSizeHint(card.sizeHint())
         self.list_widget.addItem(item)
         self.list_widget.setItemWidget(item, card)
+        proxy = self._get_proxy_str(url)
+        print(proxy)
+        self.manager.proxy = proxy
         self.manager.get_info(index)
         self.url_edit.clear()
 
